@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Particle Simulator</title>
+    <style>
+        #particleCanvas {
+            cursor: none; /* Hide the default cursor */
+        }
+    </style>
+</head>
+<body>
+    <div id="particle">
+        <canvas id="particleCanvas"></canvas>
+    </div>
+    <div style="position: fixed; top: 10px; left: 10px;">
+        <button id="recordButton">Start Recording</button>
+        <button id="stopButton" disabled>Stop Recording</button>
+    </div>
+
+    <script>
+        // Add recording variables at the top of the script
+        let mediaRecorder;
+        let recordedChunks = [];
+        let isRecording = false;
+        
+        // Setup recording functionality
+        const recordButton = document.getElementById('recordButton');
+        const stopButton = document.getElementById('stopButton');
+        
+        recordButton.addEventListener('click', startRecording);
+        stopButton.addEventListener('click', stopRecording);
+
+        function startRecording() {
+            recordedChunks = [];
+            const stream = canvas.captureStream(60); // 60 FPS
+            mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'video/webm;codecs=vp9'
+            });
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    recordedChunks.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = saveVideo;
+
+            mediaRecorder.start();
+            isRecording = true;
+            recordButton.disabled = true;
+            stopButton.disabled = false;
+        }
+
+        function stopRecording() {
+            mediaRecorder.stop();
+            isRecording = false;
+            recordButton.disabled = false;
+            stopButton.disabled = true;
+        }
+
+        function saveVideo() {
+            const blob = new Blob(recordedChunks, {
+                type: 'video/webm'
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            document.body.appendChild(a);
+            a.style.display = 'none';
+            a.href = url;
+            a.download = 'particle-animation.webm';
+            a.click();
+            URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }
+
+        const canvas = document.getElementById('particleCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas size
+        canvas.width = 450;
+        canvas.height = 800;
+
+        // Mouse position
+        let mouse = {
+            x: undefined,
+            y: undefined,
+            radius: 100 // Radius of influence
+        };
+
+        // Track mouse movement
+        canvas.addEventListener('mousemove', function(event) {
+            mouse.x = event.x;
+            mouse.y = event.y;
+        });
+
+        // Mouse leave event
+        canvas.addEventListener('mouseleave', function() {
+            mouse.x = undefined;
+            mouse.y = undefined;
+        });
+
+        // Particle class
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 5 + 4;
+                
+                // Ensure minimum speed by using a range of 0.5 to 2
+                this.speedX = (Math.random() * 1.5 + 0.5) * (Math.random() < 0.5 ? -1 : 1);
+                this.speedY = (Math.random() * 1.5 + 0.5) * (Math.random() < 0.5 ? -1 : 1);
+                
+                this.interactionRadius = 50;
+                this.baseSpeed = Math.max(Math.abs(this.speedX), Math.abs(this.speedY)); // Set base speed to initial speed
+                this.attractionStrength = 0.2;
+                this.minDistance = 20;
+                this.hue = Math.random() * 360;
+                this.colorSpeed = (Math.random() * 2) - 1; // Speed of color change
+            }
+
+            update() {
+                // Basic movement
+                this.x += this.speedX;
+                this.y += this.speedY;
+
+                // Improved boundary handling with bounce effect
+                if (this.x > canvas.width - this.size) {
+                    this.x = canvas.width - this.size;
+                    this.speedX *= -0.8; // Dampening effect
+                } else if (this.x < this.size) {
+                    this.x = this.size;
+                    this.speedX *= -0.8;
+                }
+                if (this.y > canvas.height - this.size) {
+                    this.y = canvas.height - this.size;
+                    this.speedY *= -0.8;
+                } else if (this.y < this.size) {
+                    this.y = this.size;
+                    this.speedY *= -0.8;
+                }
+
+                // Mouse attraction
+                if (mouse.x !== undefined && mouse.y !== undefined) {
+                    let dx = mouse.x - this.x;
+                    let dy = mouse.y - this.y;
+                    let distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < mouse.radius) {
+                        let force = (mouse.radius - distance) / mouse.radius;
+                        let directionX = dx / distance;
+                        let directionY = dy / distance;
+                        
+                        this.x += directionX * force * 2;
+                        this.y += directionY * force * 2;
+                    }
+                }
+
+                // Enhanced particle-particle interaction
+                particles.forEach(otherParticle => {
+                    if (this === otherParticle) return;
+                    
+                    let dx = otherParticle.x - this.x;
+                    let dy = otherParticle.y - this.y;
+                    let distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < this.interactionRadius) {
+                        let force;
+                        if (distance < this.minDistance) {
+                            // Repel if too close
+                            force = -1 * (this.minDistance - distance) / this.minDistance;
+                        } else {
+                            // Attract if within interaction radius
+                            force = (this.interactionRadius - distance) / this.interactionRadius;
+                        }
+                        
+                        let directionX = dx / distance;
+                        let directionY = dy / distance;
+                        
+                        this.speedX += directionX * force * this.attractionStrength;
+                        this.speedY += directionY * force * this.attractionStrength;
+                        
+                        // Limit speed to prevent excessive acceleration
+                        let speed = Math.sqrt(this.speedX * this.speedX + this.speedY * this.speedY);
+                        if (speed > this.baseSpeed * 2) {
+                            this.speedX = (this.speedX / speed) * this.baseSpeed * 2;
+                            this.speedY = (this.speedY / speed) * this.baseSpeed * 2;
+                        }
+                    }
+                });
+
+                // Update the color
+                this.hue += this.colorSpeed;
+                if (this.hue > 360) this.hue = 0;
+                if (this.hue < 0) this.hue = 360;
+            }
+
+            draw() {
+                ctx.fillStyle = `hsl(${this.hue}, 70%, 60%)`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // Create particle array
+        const particles = [];
+        const numberOfParticles = 30;
+
+        for (let i = 0; i < numberOfParticles; i++) {
+            particles.push(new Particle());
+        }
+
+        // Animation loop
+        function animate() {
+            // Change from solid black to semi-transparent black for trail effect
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'; // Reduced opacity for longer trails
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw mouse pointer
+            if (mouse.x !== undefined && mouse.y !== undefined) {
+                ctx.fillStyle = '#FF4444';  // Red color for mouse pointer
+                ctx.beginPath();
+                ctx.arc(mouse.x, mouse.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            for (let particle of particles) {
+                particle.update();
+                particle.draw();
+            }
+            
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
